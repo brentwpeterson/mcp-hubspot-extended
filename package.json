@@ -1,0 +1,27 @@
+{
+  "name": "mcp-hubspot-extended",
+  "version": "0.2.0",
+  "description": "Extended HubSpot MCP server for marketing emails and templates",
+  "author": "Brent Peterson",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-hubspot-extended": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
