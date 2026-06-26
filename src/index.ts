@@ -619,6 +619,40 @@ const tools: Tool[] = [
     description: "Get details about the connected HubSpot account/portal (portal id, time zone, currency, UI domain). Mirrors GET /account-info/v3/details.",
     inputSchema: { type: "object" as const, properties: {} },
   },
+  {
+    name: "hubspot_get_user_details",
+    description:
+      "Get details about the connected token's user/owner and account in one call: token info (userId, hubId, scopes), the resolved CRM owner (ownerId, email, name), and account info (portalId, time zone, uiDomain). Use ownerId for engagement/ownership operations.",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "hubspot_create_engagement",
+    description:
+      "Create an engagement (NOTE, TASK, MEETING, CALL, or EMAIL) and associate it with records in one call. Mirrors the official create-engagement: { type, ownerId, associations: { contactIds, companyIds, dealIds, ticketIds }, metadata }. For a NOTE, metadata = { body }. For a TASK, metadata = { subject, body, status, forObjectType }.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        type: {
+          type: "string",
+          description: "Engagement type: NOTE, TASK, MEETING, CALL, or EMAIL.",
+        },
+        ownerId: { type: "string", description: "Owner id (HubSpot owner) for the engagement." },
+        associations: {
+          type: "object" as const,
+          description: "Records to associate: { contactIds: [], companyIds: [], dealIds: [], ticketIds: [] }.",
+        },
+        metadata: {
+          type: "object" as const,
+          description: "Type-specific content. NOTE: { body }. TASK: { subject, body, status, forObjectType }.",
+        },
+        timestamp: {
+          type: "number",
+          description: "Optional engagement timestamp in epoch ms (defaults to now).",
+        },
+      },
+      required: ["type", "metadata"],
+    },
+  },
 ];
 
 // Tool handlers
@@ -1014,11 +1048,61 @@ async function getAccountDetails(): Promise<unknown> {
   return hubspotRequest("/account-info/v3/details");
 }
 
+async function getUserDetails(): Promise<unknown> {
+  // Token info: private-app tokens use the private-apps introspection endpoint
+  // (the OAuth /oauth/v1/access-tokens/{token} endpoint returns nulls for them).
+  const tokenInfo = (await hubspotRequest(
+    "/oauth/v2/private-apps/get/access-token-info",
+    "POST",
+    { tokenKey: HUBSPOT_ACCESS_TOKEN }
+  )) as Record<string, unknown>;
+
+  // Resolve the CRM owner from the token's userId so callers get an ownerId.
+  let ownerInfo: unknown = null;
+  const userId = tokenInfo && tokenInfo.userId;
+  if (userId !== undefined && userId !== null) {
+    try {
+      ownerInfo = await hubspotRequest(
+        `/crm/v3/owners/${encodeURIComponent(String(userId))}?idProperty=userId`
+      );
+    } catch (e) {
+      ownerInfo = { error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  const accountInfo = await getAccountDetails();
+
+  return { tokenInfo, ownerInfo, accountInfo };
+}
+
+async function createEngagement(args: {
+  type: string;
+  ownerId?: string;
+  associations?: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  timestamp?: number;
+}): Promise<unknown> {
+  const engagement: Record<string, unknown> = {
+    active: true,
+    type: args.type,
+  };
+  if (args.ownerId) engagement.ownerId = args.ownerId;
+  if (args.timestamp) engagement.timestamp = args.timestamp;
+
+  const payload: Record<string, unknown> = {
+    engagement,
+    metadata: args.metadata,
+  };
+  if (args.associations) payload.associations = args.associations;
+
+  return hubspotRequest("/engagements/v1/engagements", "POST", payload);
+}
+
 // Create and configure the MCP server
 const server = new Server(
   {
     name: "hubspot-extended",
-    version: "0.3.0",
+    version: "0.4.0",
   },
   {
     capabilities: {
@@ -1181,6 +1265,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "hubspot_get_account_details":
         result = await getAccountDetails();
+        break;
+
+      case "hubspot_get_user_details":
+        result = await getUserDetails();
+        break;
+
+      case "hubspot_create_engagement":
+        result = await createEngagement(args as Parameters<typeof createEngagement>[0]);
         break;
 
       default:

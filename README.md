@@ -209,6 +209,11 @@ npm start
 
 ## Changelog
 
+### v0.4.0
+- Added `hubspot_get_user_details` (token info + resolved owner + account info, mirroring the official tool; uses the private-app token-info endpoint since OAuth introspection returns null for `pat-` tokens) and `hubspot_create_engagement` (NOTE/TASK/etc. with associations, same input shape as the official tool)
+- Verified write parity against the live CC portal (created + deleted a NOTE engagement; user-details resolves ownerId 378618219)
+- **This server is now the sole HubSpot MCP.** All workspace consumers (skills, commands, brent-start routine steps 4 & 9.96) were re-pointed from `mcp__hubspot__*` to `mcp__hubspot-extended__*`, and the official `@hubspot/mcp-server` entry was removed from `.mcp.json`
+
 ### v0.3.0
 - Ported core CRM tools from the official server: search/list/batch-read/create/update/batch-create/batch-update objects, list/get/create/update properties, schemas, list/get-definition/batch-create associations, list/get workflows, account details
 - Verified read-path parity against the live CC portal (past-due-tasks search returns the same count, 38, as the official server)
