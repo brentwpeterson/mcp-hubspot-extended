@@ -7,14 +7,83 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { readFileSync } from "node:fs";
 
-// Get HubSpot access token from environment
-const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
 const HUBSPOT_API_BASE = "https://api.hubapi.com";
 
-if (!HUBSPOT_ACCESS_TOKEN) {
-  console.error("Error: HUBSPOT_ACCESS_TOKEN environment variable is required");
+// ---------------------------------------------------------------------------
+// Multi-tenant token routing
+//
+// One server, many client portals. Tokens come from two sources, merged:
+//   1. HUBSPOT_ACCESS_TOKEN  -> the default client (HUBSPOT_DEFAULT_CLIENT, "cc")
+//   2. HUBSPOT_TOKENS_FILE   -> a chmod-600 JSON file: { "<clientSlug>": "<token>" }
+// File entries override the legacy single token for the same slug.
+//
+// Per call, a tool may pass `client`. Resolution is strict: an unknown slug is
+// a HARD ERROR — we never silently fall back to another portal (that would let
+// a write land on the wrong client and hide the misconfiguration).
+// ---------------------------------------------------------------------------
+const DEFAULT_CLIENT = process.env.HUBSPOT_DEFAULT_CLIENT || "cc";
+
+function loadTokens(): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (process.env.HUBSPOT_ACCESS_TOKEN) {
+    map[DEFAULT_CLIENT] = process.env.HUBSPOT_ACCESS_TOKEN;
+  }
+  const file = process.env.HUBSPOT_TOKENS_FILE;
+  if (file) {
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch (e) {
+      console.error(`Error: HUBSPOT_TOKENS_FILE set but unreadable (${file}): ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error(`Error: HUBSPOT_TOKENS_FILE is not valid JSON (${file}): ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === "string" && v) map[k] = v;
+      }
+    }
+  }
+  return map;
+}
+
+const TOKENS = loadTokens();
+
+if (Object.keys(TOKENS).length === 0) {
+  console.error("Error: no HubSpot tokens configured. Set HUBSPOT_ACCESS_TOKEN and/or HUBSPOT_TOKENS_FILE.");
   process.exit(1);
+}
+
+// Per-request token context (concurrency-safe; no shared mutable state).
+const requestContext = new AsyncLocalStorage<{ client: string; token: string }>();
+
+function resolveClient(client?: string): { client: string; token: string } {
+  const c = client || DEFAULT_CLIENT;
+  const token = TOKENS[c];
+  if (!token) {
+    throw new Error(
+      `Unknown HubSpot client "${c}". Known clients: ${Object.keys(TOKENS).join(", ")}. ` +
+        `Refusing to fall back to another portal.`
+    );
+  }
+  return { client: c, token };
+}
+
+function currentToken(): string {
+  const store = requestContext.getStore();
+  if (!store || !store.token) {
+    throw new Error("Internal error: HubSpot request made outside a resolved client context.");
+  }
+  return store.token;
 }
 
 // Helper function for HubSpot API requests
@@ -26,7 +95,7 @@ async function hubspotRequest(
   const url = `${HUBSPOT_API_BASE}${endpoint}`;
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${HUBSPOT_ACCESS_TOKEN}`,
+    Authorization: `Bearer ${currentToken()}`,
     "Content-Type": "application/json",
   };
 
@@ -655,6 +724,19 @@ const tools: Tool[] = [
   },
 ];
 
+// Every tool accepts an optional `client` slug for multi-tenant routing.
+// Inject it once rather than repeating it across each schema.
+const CLIENT_PROP = {
+  type: "string",
+  description:
+    "Client/portal slug to target. Defaults to the configured default client. An unknown slug is a hard error (never a silent fallback to another portal).",
+};
+for (const t of tools) {
+  const schema = t.inputSchema as { properties?: Record<string, unknown> };
+  schema.properties = schema.properties || {};
+  if (!schema.properties.client) schema.properties.client = CLIENT_PROP;
+}
+
 // Tool handlers
 async function listMarketingEmails(args: {
   limit?: number;
@@ -1054,7 +1136,7 @@ async function getUserDetails(): Promise<unknown> {
   const tokenInfo = (await hubspotRequest(
     "/oauth/v2/private-apps/get/access-token-info",
     "POST",
-    { tokenKey: HUBSPOT_ACCESS_TOKEN }
+    { tokenKey: currentToken() }
   )) as Record<string, unknown>;
 
   // Resolve the CRM owner from the token's userId so callers get an ownerId.
@@ -1102,7 +1184,7 @@ async function createEngagement(args: {
 const server = new Server(
   {
     name: "hubspot-extended",
-    version: "0.4.0",
+    version: "0.5.0",
   },
   {
     capabilities: {
@@ -1121,9 +1203,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
-    let result: unknown;
+    const { token, client } = resolveClient(
+      (args as { client?: string } | undefined)?.client
+    );
+    const result = await requestContext.run({ client, token }, async (): Promise<unknown> => {
+      let result: unknown;
 
-    switch (name) {
+      switch (name) {
       case "hubspot_list_marketing_emails":
         result = await listMarketingEmails(args as Parameters<typeof listMarketingEmails>[0]);
         break;
@@ -1276,8 +1362,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
 
       default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
+          throw new Error(`Unknown tool: ${name}`);
+      }
+
+      return result;
+    });
 
     return {
       content: [

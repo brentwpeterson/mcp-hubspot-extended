@@ -64,6 +64,31 @@ Add to your Claude Code MCP configuration (`~/.claude.json` or project `.mcp.jso
 
 Restart Claude Code to load the server.
 
+## Multi-Tenant Routing (v0.5.0)
+
+One server, many client portals. Tokens come from two sources, merged:
+
+1. `HUBSPOT_ACCESS_TOKEN` — becomes the **default client** (`HUBSPOT_DEFAULT_CLIENT`, defaults to `cc`)
+2. `HUBSPOT_TOKENS_FILE` — path to a **chmod-600 JSON file** mapping client slugs to tokens:
+
+```json
+{
+  "cc": "pat-na1-...",
+  "acme": "pat-na1-...",
+  "globex": "pat-na1-..."
+}
+```
+
+Every tool accepts an optional `client` slug. Resolution is **strict**:
+
+- `client` omitted → the default client (`cc`).
+- `client` is a known slug → that portal's token.
+- `client` is an **unknown** slug → **hard error**. The server never silently falls back to another portal — a wrong-portal write must fail loudly, not land quietly on the wrong client.
+
+Backward compatible: with only `HUBSPOT_ACCESS_TOKEN` set (no tokens file), the server behaves exactly as a single-portal server for client `cc`.
+
+To add a client: create/extend the chmod-600 JSON file with the new slug→token, and set `HUBSPOT_TOKENS_FILE` in the server's `.mcp.json` env block (do **not** hardcode tokens in `.mcp.json`).
+
 ## Available Tools
 
 ### Core CRM (v0.3.0)
@@ -208,6 +233,11 @@ npm start
 ```
 
 ## Changelog
+
+### v0.5.0
+- Multi-tenant token routing: `{clientSlug: token}` from a chmod-600 `HUBSPOT_TOKENS_FILE`, plus the legacy `HUBSPOT_ACCESS_TOKEN` as the default client. Per-request token context via `AsyncLocalStorage` (concurrency-safe).
+- Every tool accepts an optional `client` slug. Unknown slug = hard error; no silent fallback to another portal (so a wrong-portal write fails loudly).
+- Backward compatible: single-token setups are unchanged (default client `cc`).
 
 ### v0.4.0
 - Added `hubspot_get_user_details` (token info + resolved owner + account info, mirroring the official tool; uses the private-app token-info endpoint since OAuth introspection returns null for `pat-` tokens) and `hubspot_create_engagement` (NOTE/TASK/etc. with associations, same input shape as the official tool)
