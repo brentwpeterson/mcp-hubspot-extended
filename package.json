@@ -1,7 +1,7 @@
 {
   "name": "mcp-hubspot-extended",
-  "version": "0.2.0",
-  "description": "Extended HubSpot MCP server for marketing emails and templates",
+  "version": "0.3.0",
+  "description": "Standalone multi-tenant HubSpot MCP server: core CRM plus marketing, sequences, and workflows",
   "author": "Brent Peterson",
   "license": "MIT",
   "type": "module",

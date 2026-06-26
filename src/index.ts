@@ -360,6 +360,265 @@ const tools: Tool[] = [
       required: ["workflowId", "contactId"],
     },
   },
+  // Core CRM tools (ported from the official @hubspot/mcp-server so this server
+  // can stand alone). Names mirror hubspot_<verb>_<noun> for consistency.
+  {
+    name: "hubspot_search_objects",
+    description:
+      "Search any HubSpot CRM object (tasks, contacts, companies, deals, tickets, or a custom object type) with filter groups, sorting, and property selection. Mirrors POST /crm/v3/objects/{objectType}/search. Returns { total, results, paging }.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: {
+          type: "string",
+          description:
+            "CRM object type to search: 'tasks', 'contacts', 'companies', 'deals', 'tickets', or a custom object type id.",
+        },
+        filterGroups: {
+          type: "array",
+          description:
+            "Array of filter groups (OR between groups, AND within a group). Each group is { filters: [{ propertyName, operator, value | values | highValue }] }. Operators: EQ, NEQ, LT, LTE, GT, GTE, BETWEEN, IN, NOT_IN, HAS_PROPERTY, NOT_HAS_PROPERTY, CONTAINS_TOKEN, NOT_CONTAINS_TOKEN.",
+          items: { type: "object" as const },
+        },
+        properties: {
+          type: "array",
+          description: "Property names to return for each matching record.",
+          items: { type: "string" },
+        },
+        sorts: {
+          type: "array",
+          description:
+            "Sort directives, e.g. [{ propertyName: 'hs_timestamp', direction: 'DESCENDING' }]. HubSpot search accepts a single sort.",
+          items: { type: "object" as const },
+        },
+        query: {
+          type: "string",
+          description: "Optional free-text search string.",
+        },
+        limit: {
+          type: "number",
+          description: "Max records to return (default 100, HubSpot max 200).",
+          default: 100,
+        },
+        after: {
+          type: "string",
+          description: "Pagination cursor from a previous response's paging.next.after.",
+        },
+      },
+      required: ["objectType"],
+    },
+  },
+  {
+    name: "hubspot_list_objects",
+    description:
+      "List records of a CRM object type (tasks, contacts, companies, deals, tickets, custom). Mirrors GET /crm/v3/objects/{objectType}. Use hubspot_search_objects when you need filters.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        properties: {
+          type: "array",
+          description: "Property names to return for each record.",
+          items: { type: "string" },
+        },
+        associations: {
+          type: "array",
+          description: "Object types whose associated record ids should be returned.",
+          items: { type: "string" },
+        },
+        limit: { type: "number", description: "Max records (default 100, max 100).", default: 100 },
+        after: { type: "string", description: "Pagination cursor." },
+        archived: { type: "boolean", description: "Return archived records instead of active." },
+      },
+      required: ["objectType"],
+    },
+  },
+  {
+    name: "hubspot_batch_read_objects",
+    description:
+      "Read multiple CRM records by id (or by a unique property) in one call. Mirrors POST /crm/v3/objects/{objectType}/batch/read.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        inputs: {
+          type: "array",
+          description: "Records to read, e.g. [{ id: '123' }]. With idProperty set, id is that property's value.",
+          items: { type: "object" as const },
+        },
+        properties: { type: "array", description: "Property names to return.", items: { type: "string" } },
+        idProperty: { type: "string", description: "Optional unique property to look records up by instead of the record id." },
+      },
+      required: ["objectType", "inputs"],
+    },
+  },
+  {
+    name: "hubspot_create_object",
+    description: "Create a single CRM record. Mirrors POST /crm/v3/objects/{objectType}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        properties: { type: "object" as const, description: "Property name/value map for the new record." },
+        associations: { type: "array", description: "Optional associations to create with the record.", items: { type: "object" as const } },
+      },
+      required: ["objectType", "properties"],
+    },
+  },
+  {
+    name: "hubspot_update_object",
+    description: "Update a single CRM record by id. Mirrors PATCH /crm/v3/objects/{objectType}/{objectId}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        objectId: { type: "string", description: "Record id to update." },
+        properties: { type: "object" as const, description: "Property name/value map of changes." },
+      },
+      required: ["objectType", "objectId", "properties"],
+    },
+  },
+  {
+    name: "hubspot_batch_create_objects",
+    description: "Create multiple CRM records in one call. Mirrors POST /crm/v3/objects/{objectType}/batch/create.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        inputs: { type: "array", description: "Records to create, e.g. [{ properties: { ... } }].", items: { type: "object" as const } },
+      },
+      required: ["objectType", "inputs"],
+    },
+  },
+  {
+    name: "hubspot_batch_update_objects",
+    description: "Update multiple CRM records in one call. Mirrors POST /crm/v3/objects/{objectType}/batch/update.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        inputs: { type: "array", description: "Records to update, e.g. [{ id: '123', properties: { ... } }].", items: { type: "object" as const } },
+      },
+      required: ["objectType", "inputs"],
+    },
+  },
+  {
+    name: "hubspot_list_properties",
+    description: "List all properties defined for a CRM object type. Mirrors GET /crm/v3/properties/{objectType}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        archived: { type: "boolean", description: "Return archived properties." },
+      },
+      required: ["objectType"],
+    },
+  },
+  {
+    name: "hubspot_get_property",
+    description: "Get a single property definition for a CRM object type. Mirrors GET /crm/v3/properties/{objectType}/{propertyName}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        propertyName: { type: "string", description: "Internal property name." },
+      },
+      required: ["objectType", "propertyName"],
+    },
+  },
+  {
+    name: "hubspot_create_property",
+    description: "Create a new property on a CRM object type. Mirrors POST /crm/v3/properties/{objectType}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        definition: { type: "object" as const, description: "Property definition (name, label, type, fieldType, groupName, options, etc.)." },
+      },
+      required: ["objectType", "definition"],
+    },
+  },
+  {
+    name: "hubspot_update_property",
+    description: "Update an existing property on a CRM object type. Mirrors PATCH /crm/v3/properties/{objectType}/{propertyName}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "CRM object type." },
+        propertyName: { type: "string", description: "Internal property name to update." },
+        definition: { type: "object" as const, description: "Fields to change." },
+      },
+      required: ["objectType", "propertyName", "definition"],
+    },
+  },
+  {
+    name: "hubspot_get_schemas",
+    description: "List CRM object schemas (including custom objects). Mirrors GET /crm/v3/schemas.",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "hubspot_list_associations",
+    description: "List records associated with a given record. Mirrors GET /crm/v4/objects/{objectType}/{objectId}/associations/{toObjectType}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        objectType: { type: "string", description: "Source CRM object type." },
+        objectId: { type: "string", description: "Source record id." },
+        toObjectType: { type: "string", description: "Associated object type to list." },
+        limit: { type: "number", description: "Max associations (default 100).", default: 100 },
+        after: { type: "string", description: "Pagination cursor." },
+      },
+      required: ["objectType", "objectId", "toObjectType"],
+    },
+  },
+  {
+    name: "hubspot_get_association_definitions",
+    description: "List association type definitions/labels between two object types. Mirrors GET /crm/v4/associations/{fromObjectType}/{toObjectType}/labels.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        fromObjectType: { type: "string", description: "Source object type." },
+        toObjectType: { type: "string", description: "Target object type." },
+      },
+      required: ["fromObjectType", "toObjectType"],
+    },
+  },
+  {
+    name: "hubspot_batch_create_associations",
+    description: "Create multiple associations between records in one call. Mirrors POST /crm/v4/associations/{fromObjectType}/{toObjectType}/batch/create.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        fromObjectType: { type: "string", description: "Source object type." },
+        toObjectType: { type: "string", description: "Target object type." },
+        inputs: {
+          type: "array",
+          description: "Associations to create, e.g. [{ from: { id }, to: { id }, types: [{ associationCategory, associationTypeId }] }].",
+          items: { type: "object" as const },
+        },
+      },
+      required: ["fromObjectType", "toObjectType", "inputs"],
+    },
+  },
+  {
+    name: "hubspot_list_workflows",
+    description: "List automation workflows. Mirrors GET /automation/v3/workflows.",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "hubspot_get_workflow",
+    description: "Get a single automation workflow by id. Mirrors GET /automation/v3/workflows/{workflowId}.",
+    inputSchema: {
+      type: "object" as const,
+      properties: { workflowId: { type: "string", description: "Workflow id." } },
+      required: ["workflowId"],
+    },
+  },
+  {
+    name: "hubspot_get_account_details",
+    description: "Get details about the connected HubSpot account/portal (portal id, time zone, currency, UI domain). Mirrors GET /account-info/v3/details.",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
 ];
 
 // Tool handlers
@@ -546,11 +805,220 @@ async function unenrollFromWorkflow(workflowId: string, contactId: string): Prom
   );
 }
 
+// Core CRM handlers
+async function searchObjects(args: {
+  objectType: string;
+  filterGroups?: unknown[];
+  properties?: string[];
+  sorts?: unknown[];
+  query?: string;
+  limit?: number;
+  after?: string;
+}): Promise<unknown> {
+  const payload: Record<string, unknown> = {};
+
+  if (args.filterGroups) payload.filterGroups = args.filterGroups;
+  if (args.properties) payload.properties = args.properties;
+  if (args.sorts) payload.sorts = args.sorts;
+  if (args.query) payload.query = args.query;
+  payload.limit = args.limit ? Math.min(args.limit, 200) : 100;
+  if (args.after) payload.after = args.after;
+
+  return hubspotRequest(
+    `/crm/v3/objects/${encodeURIComponent(args.objectType)}/search`,
+    "POST",
+    payload
+  );
+}
+
+async function listObjects(args: {
+  objectType: string;
+  properties?: string[];
+  associations?: string[];
+  limit?: number;
+  after?: string;
+  archived?: boolean;
+}): Promise<unknown> {
+  const params = new URLSearchParams();
+  params.append("limit", String(args.limit ? Math.min(args.limit, 100) : 100));
+  if (args.after) params.append("after", args.after);
+  if (args.properties) for (const p of args.properties) params.append("properties", p);
+  if (args.associations) for (const a of args.associations) params.append("associations", a);
+  if (args.archived) params.append("archived", "true");
+
+  return hubspotRequest(
+    `/crm/v3/objects/${encodeURIComponent(args.objectType)}?${params.toString()}`
+  );
+}
+
+async function batchReadObjects(args: {
+  objectType: string;
+  inputs: unknown[];
+  properties?: string[];
+  idProperty?: string;
+}): Promise<unknown> {
+  const payload: Record<string, unknown> = { inputs: args.inputs };
+  if (args.properties) payload.properties = args.properties;
+  if (args.idProperty) payload.idProperty = args.idProperty;
+
+  return hubspotRequest(
+    `/crm/v3/objects/${encodeURIComponent(args.objectType)}/batch/read`,
+    "POST",
+    payload
+  );
+}
+
+async function createObject(args: {
+  objectType: string;
+  properties: Record<string, unknown>;
+  associations?: unknown[];
+}): Promise<unknown> {
+  const payload: Record<string, unknown> = { properties: args.properties };
+  if (args.associations) payload.associations = args.associations;
+
+  return hubspotRequest(
+    `/crm/v3/objects/${encodeURIComponent(args.objectType)}`,
+    "POST",
+    payload
+  );
+}
+
+async function updateObject(args: {
+  objectType: string;
+  objectId: string;
+  properties: Record<string, unknown>;
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v3/objects/${encodeURIComponent(args.objectType)}/${encodeURIComponent(args.objectId)}`,
+    "PATCH",
+    { properties: args.properties }
+  );
+}
+
+async function batchCreateObjects(args: {
+  objectType: string;
+  inputs: unknown[];
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v3/objects/${encodeURIComponent(args.objectType)}/batch/create`,
+    "POST",
+    { inputs: args.inputs }
+  );
+}
+
+async function batchUpdateObjects(args: {
+  objectType: string;
+  inputs: unknown[];
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v3/objects/${encodeURIComponent(args.objectType)}/batch/update`,
+    "POST",
+    { inputs: args.inputs }
+  );
+}
+
+async function listProperties(args: {
+  objectType: string;
+  archived?: boolean;
+}): Promise<unknown> {
+  const params = new URLSearchParams();
+  if (args.archived) params.append("archived", "true");
+  const qs = params.toString();
+  return hubspotRequest(
+    `/crm/v3/properties/${encodeURIComponent(args.objectType)}${qs ? `?${qs}` : ""}`
+  );
+}
+
+async function getProperty(args: {
+  objectType: string;
+  propertyName: string;
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v3/properties/${encodeURIComponent(args.objectType)}/${encodeURIComponent(args.propertyName)}`
+  );
+}
+
+async function createProperty(args: {
+  objectType: string;
+  definition: Record<string, unknown>;
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v3/properties/${encodeURIComponent(args.objectType)}`,
+    "POST",
+    args.definition
+  );
+}
+
+async function updateProperty(args: {
+  objectType: string;
+  propertyName: string;
+  definition: Record<string, unknown>;
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v3/properties/${encodeURIComponent(args.objectType)}/${encodeURIComponent(args.propertyName)}`,
+    "PATCH",
+    args.definition
+  );
+}
+
+async function getSchemas(): Promise<unknown> {
+  return hubspotRequest("/crm/v3/schemas");
+}
+
+async function listAssociations(args: {
+  objectType: string;
+  objectId: string;
+  toObjectType: string;
+  limit?: number;
+  after?: string;
+}): Promise<unknown> {
+  const params = new URLSearchParams();
+  if (args.limit) params.append("limit", String(args.limit));
+  if (args.after) params.append("after", args.after);
+  const qs = params.toString();
+  return hubspotRequest(
+    `/crm/v4/objects/${encodeURIComponent(args.objectType)}/${encodeURIComponent(args.objectId)}/associations/${encodeURIComponent(args.toObjectType)}${qs ? `?${qs}` : ""}`
+  );
+}
+
+async function getAssociationDefinitions(args: {
+  fromObjectType: string;
+  toObjectType: string;
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v4/associations/${encodeURIComponent(args.fromObjectType)}/${encodeURIComponent(args.toObjectType)}/labels`
+  );
+}
+
+async function batchCreateAssociations(args: {
+  fromObjectType: string;
+  toObjectType: string;
+  inputs: unknown[];
+}): Promise<unknown> {
+  return hubspotRequest(
+    `/crm/v4/associations/${encodeURIComponent(args.fromObjectType)}/${encodeURIComponent(args.toObjectType)}/batch/create`,
+    "POST",
+    { inputs: args.inputs }
+  );
+}
+
+async function listWorkflows(): Promise<unknown> {
+  return hubspotRequest("/automation/v3/workflows");
+}
+
+async function getWorkflow(workflowId: string): Promise<unknown> {
+  return hubspotRequest(`/automation/v3/workflows/${encodeURIComponent(workflowId)}`);
+}
+
+async function getAccountDetails(): Promise<unknown> {
+  return hubspotRequest("/account-info/v3/details");
+}
+
 // Create and configure the MCP server
 const server = new Server(
   {
     name: "hubspot-extended",
-    version: "0.2.0",
+    version: "0.3.0",
   },
   {
     capabilities: {
@@ -640,6 +1108,79 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           (args as { workflowId: string; contactId: string }).workflowId,
           (args as { workflowId: string; contactId: string }).contactId
         );
+        break;
+
+      // Core CRM
+      case "hubspot_search_objects":
+        result = await searchObjects(args as Parameters<typeof searchObjects>[0]);
+        break;
+
+      case "hubspot_list_objects":
+        result = await listObjects(args as Parameters<typeof listObjects>[0]);
+        break;
+
+      case "hubspot_batch_read_objects":
+        result = await batchReadObjects(args as Parameters<typeof batchReadObjects>[0]);
+        break;
+
+      case "hubspot_create_object":
+        result = await createObject(args as Parameters<typeof createObject>[0]);
+        break;
+
+      case "hubspot_update_object":
+        result = await updateObject(args as Parameters<typeof updateObject>[0]);
+        break;
+
+      case "hubspot_batch_create_objects":
+        result = await batchCreateObjects(args as Parameters<typeof batchCreateObjects>[0]);
+        break;
+
+      case "hubspot_batch_update_objects":
+        result = await batchUpdateObjects(args as Parameters<typeof batchUpdateObjects>[0]);
+        break;
+
+      case "hubspot_list_properties":
+        result = await listProperties(args as Parameters<typeof listProperties>[0]);
+        break;
+
+      case "hubspot_get_property":
+        result = await getProperty(args as Parameters<typeof getProperty>[0]);
+        break;
+
+      case "hubspot_create_property":
+        result = await createProperty(args as Parameters<typeof createProperty>[0]);
+        break;
+
+      case "hubspot_update_property":
+        result = await updateProperty(args as Parameters<typeof updateProperty>[0]);
+        break;
+
+      case "hubspot_get_schemas":
+        result = await getSchemas();
+        break;
+
+      case "hubspot_list_associations":
+        result = await listAssociations(args as Parameters<typeof listAssociations>[0]);
+        break;
+
+      case "hubspot_get_association_definitions":
+        result = await getAssociationDefinitions(args as Parameters<typeof getAssociationDefinitions>[0]);
+        break;
+
+      case "hubspot_batch_create_associations":
+        result = await batchCreateAssociations(args as Parameters<typeof batchCreateAssociations>[0]);
+        break;
+
+      case "hubspot_list_workflows":
+        result = await listWorkflows();
+        break;
+
+      case "hubspot_get_workflow":
+        result = await getWorkflow((args as { workflowId: string }).workflowId);
+        break;
+
+      case "hubspot_get_account_details":
+        result = await getAccountDetails();
         break;
 
       default:

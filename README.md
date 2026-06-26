@@ -4,12 +4,15 @@ A Model Context Protocol (MCP) server that extends HubSpot functionality for Cla
 
 ## Why This Exists
 
-The official HubSpot MCP server (`@hubspot/mcp-server`) provides read-only access to CRM objects. This extended server adds:
+This server is being grown into a **standalone, multi-tenant** HubSpot MCP that Content Cucumber owns — so it can serve CC plus every client portal, and so we are not dependent on HubSpot's own server. As of v0.3.0 it ports the official server's **core CRM tools** (search, read, create, update, properties, associations, schemas, workflows) alongside the marketing/sequence/workflow add-ons it already had:
 
+- **Core CRM** (new in v0.3.0): search, list, batch read, create, update, batch create/update objects; list/get/create/update properties; schemas; list/get-definition/batch-create associations; list/get workflows; account details
 - Marketing email management (list, create, update, clone, delete)
 - Email statistics and performance data
 - Sales sequences (list, view, enroll contacts)
 - Workflow enrollment (enroll/unenroll contacts)
+
+Once core-CRM parity is fully exercised and multi-tenant client routing lands, the official `@hubspot/mcp-server` entry can be retired (see backlog `6a3ec7413fd534dd5e72ba75`).
 
 ## Prerequisites
 
@@ -62,6 +65,33 @@ Add to your Claude Code MCP configuration (`~/.claude.json` or project `.mcp.jso
 Restart Claude Code to load the server.
 
 ## Available Tools
+
+### Core CRM (v0.3.0)
+
+| Tool | Description |
+|------|-------------|
+| `hubspot_search_objects` | Search any object type with filter groups, sorts, properties |
+| `hubspot_list_objects` | List records of an object type |
+| `hubspot_batch_read_objects` | Read multiple records by id (or unique property) |
+| `hubspot_create_object` | Create a single record |
+| `hubspot_update_object` | Update a single record by id |
+| `hubspot_batch_create_objects` | Create multiple records |
+| `hubspot_batch_update_objects` | Update multiple records |
+| `hubspot_list_properties` | List property definitions for an object type |
+| `hubspot_get_property` | Get one property definition |
+| `hubspot_create_property` | Create a property |
+| `hubspot_update_property` | Update a property |
+| `hubspot_get_schemas` | List CRM object schemas (incl. custom objects) |
+| `hubspot_list_associations` | List records associated with a record |
+| `hubspot_get_association_definitions` | List association labels between two object types |
+| `hubspot_batch_create_associations` | Create multiple associations |
+| `hubspot_list_workflows` | List automation workflows |
+| `hubspot_get_workflow` | Get one workflow |
+| `hubspot_get_account_details` | Connected portal info (id, time zone, currency) |
+
+> Engagements (tasks, notes, calls, emails, meetings) are CRM objects — use the object tools with the matching `objectType` instead of dedicated engagement tools.
+>
+> **Not yet ported:** `get_link` / `generate_feedback_link` (HubSpot-MCP UI deep-link conveniences). `get_user_details` is approximated by `hubspot_get_account_details`.
 
 ### Marketing Emails
 
@@ -155,10 +185,14 @@ This server is **complementary** to the official `@hubspot/mcp-server`. You can 
 
 | Feature | Official MCP | This Server |
 |---------|-------------|-------------|
-| CRM Objects | Read-only | - |
-| Workflows | List, Get | Enroll, Unenroll |
+| CRM Objects | Read + write | Read + write (v0.3.0) |
+| Properties / Schemas / Associations | Yes | Yes (v0.3.0) |
+| Workflows | List, Get | List, Get, Enroll, Unenroll |
 | Marketing Emails | - | Full CRUD |
 | Sequences | - | List, Get, Enroll |
+| Multi-tenant (many portals) | No (single portal) | Planned |
+
+Goal: once parity is fully exercised and multi-tenant routing lands, this server replaces the official one entirely.
 
 ## Development
 
@@ -174,6 +208,11 @@ npm start
 ```
 
 ## Changelog
+
+### v0.3.0
+- Ported core CRM tools from the official server: search/list/batch-read/create/update/batch-create/batch-update objects, list/get/create/update properties, schemas, list/get-definition/batch-create associations, list/get workflows, account details
+- Verified read-path parity against the live CC portal (past-due-tasks search returns the same count, 38, as the official server)
+- Step toward retiring `@hubspot/mcp-server` (backlog `6a3ec7413fd534dd5e72ba75`)
 
 ### v0.2.0
 - Added sequences tools (list, get, enroll, unenroll)
