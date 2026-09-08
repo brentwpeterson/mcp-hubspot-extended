@@ -194,11 +194,11 @@ const tools: Tool[] = [
         },
         senderEmail: {
           type: "string",
-          description: "Email address shown as the sender",
+          description: "Sending address; must be a connected team inbox in HubSpot (maps to from.replyTo)",
         },
         replyTo: {
           type: "string",
-          description: "Reply-to email address",
+          description: "Reply-to override (maps to from.customReplyTo)",
         },
         htmlContent: {
           type: "string",
@@ -206,7 +206,7 @@ const tools: Tool[] = [
         },
         templatePath: {
           type: "string",
-          description: "Path to HubSpot template (e.g., '@hubspot/email/dnd/welcome.html')",
+          description: "Path to a Design Manager email template, e.g. 'custom/email/cucumber-club-boxes.html' (maps to content.templatePath). Use this for coded emails; htmlContent renders drag-and-drop only.",
         },
       },
       required: ["name", "subject"],
@@ -236,11 +236,11 @@ const tools: Tool[] = [
         },
         senderEmail: {
           type: "string",
-          description: "Email address shown as the sender",
+          description: "Sending address; must be a connected team inbox in HubSpot (maps to from.replyTo)",
         },
         replyTo: {
           type: "string",
-          description: "Reply-to email address",
+          description: "Reply-to override (maps to from.customReplyTo)",
         },
         htmlContent: {
           type: "string",
@@ -779,14 +779,22 @@ async function createMarketingEmail(args: {
     subject: args.subject,
   };
 
-  if (args.senderName) payload.fromName = args.senderName;
-  if (args.senderEmail) payload.from = args.senderEmail;
-  if (args.replyTo) payload.replyTo = args.replyTo;
-  if (args.templatePath) payload.templatePath = args.templatePath;
+  // HubSpot v3 shape (fixed 2026-09-08, was 400 "no String-argument constructor"):
+  // from = { fromName, replyTo (the SENDING address, a connected team inbox), customReplyTo (reply-to override) }
+  // templatePath lives under content, next to widgets.
+  const from: Record<string, string> = {};
+  if (args.senderName) from.fromName = args.senderName;
+  if (args.senderEmail) from.replyTo = args.senderEmail;
+  if (args.replyTo) from.customReplyTo = args.replyTo;
+  if (Object.keys(from).length) payload.from = from;
+  if (args.templatePath) payload.content = { templatePath: args.templatePath };
 
-  // Handle HTML content - HubSpot expects it in a specific structure
+  // Handle HTML content - HubSpot expects it in a specific structure.
+  // NOTE: this renders as a drag-and-drop body, it does NOT render coded HTML; for a designed
+  // email upload a coded template to Design Manager and pass templatePath instead.
   if (args.htmlContent) {
     payload.content = {
+      ...(payload.content as Record<string, unknown> | undefined),
       widgets: {
         hs_email_body: {
           body: {
@@ -813,9 +821,11 @@ async function updateMarketingEmail(args: {
 
   if (args.name) payload.name = args.name;
   if (args.subject) payload.subject = args.subject;
-  if (args.senderName) payload.fromName = args.senderName;
-  if (args.senderEmail) payload.from = args.senderEmail;
-  if (args.replyTo) payload.replyTo = args.replyTo;
+  const from: Record<string, string> = {};
+  if (args.senderName) from.fromName = args.senderName;
+  if (args.senderEmail) from.replyTo = args.senderEmail;
+  if (args.replyTo) from.customReplyTo = args.replyTo;
+  if (Object.keys(from).length) payload.from = from;
 
   if (args.htmlContent) {
     payload.content = {
