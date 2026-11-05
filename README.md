@@ -259,3 +259,17 @@ npm start
 ## License
 
 MIT
+
+## Social (v0.6.0)
+
+Five tools on HubSpot's Social Media v1 "broadcasts" API. HubSpot marks this API deprecated but supported, and it is the only public social API. The token needs the `social` scope (added to the Content Cucumber app 2026-11-05).
+
+| Tool | What it does |
+|---|---|
+| `hubspot_social_list_channels` | Connected accounts you can publish to, with `channelGuid` |
+| `hubspot_social_list_posts` | Posts by status: `waiting`, `success`, `canceled`, `error_fatal` |
+| `hubspot_social_get_post` | One post by `broadcastGuid` |
+| `hubspot_social_schedule_post` | Schedule one post to one account. `triggerAt` is required and must be 2+ minutes out; the tool refuses otherwise, so it never publishes by accident. It also refuses a `channelGuid` that is not connected. |
+| `hubspot_social_cancel_post` | Cancel a scheduled (`waiting`) post |
+
+v1 has no drafts. A post is scheduled or it is not.

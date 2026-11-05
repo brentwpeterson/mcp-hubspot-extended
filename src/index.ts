@@ -722,6 +722,66 @@ const tools: Tool[] = [
       required: ["type", "metadata"],
     },
   },
+  // --- Social (HubSpot Social Media v1 "broadcasts" API; deprecated by HubSpot but
+  // supported, and the only public social API). Needs the `social` scope on the token.
+  // v1 has NO drafts: a broadcast is either scheduled (triggerAt) or sent now.
+  {
+    name: "hubspot_social_list_channels",
+    description:
+      "List the social accounts connected in HubSpot that can be published to (GET /broadcast/v1/channels/setting/publish/current). Returns channelGuid, name and channelKey for each. Use the channelGuid to schedule a post.",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "hubspot_social_list_posts",
+    description:
+      "List social posts (broadcasts). Filter by status: waiting (scheduled), success (published), canceled, error_fatal. Results are newest first.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        status: { type: "string", description: "waiting | success | canceled | error_fatal. Omit for all." },
+        since: { type: "number", description: "Only posts created after this epoch-ms time." },
+        count: { type: "number", description: "Max posts to return (default 20)." },
+      },
+    },
+  },
+  {
+    name: "hubspot_social_get_post",
+    description: "Get one social post (broadcast) by broadcastGuid, including status, triggerAt and content.",
+    inputSchema: {
+      type: "object" as const,
+      properties: { broadcastGuid: { type: "string", description: "The broadcast guid." } },
+      required: ["broadcastGuid"],
+    },
+  },
+  {
+    name: "hubspot_social_schedule_post",
+    description:
+      "Schedule a social post to ONE connected account for a future time. triggerAt is REQUIRED and must be at least 2 minutes in the future (the tool refuses otherwise, so it can never publish by accident). Live write: confirm the wording with Brent before calling.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        channelGuid: { type: "string", description: "Target account, from hubspot_social_list_channels." },
+        body: { type: "string", description: "Post text." },
+        triggerAt: {
+          type: "string",
+          description: "When to publish: ISO 8601 with offset (e.g. 2026-11-10T09:00:00-06:00) or epoch ms as a string.",
+        },
+        photoUrl: { type: "string", description: "Optional public image URL." },
+        linkUrl: { type: "string", description: "Optional link to attach." },
+      },
+      required: ["channelGuid", "body", "triggerAt"],
+    },
+  },
+  {
+    name: "hubspot_social_cancel_post",
+    description:
+      "Cancel a scheduled social post (DELETE /broadcast/v1/broadcasts/{guid}). Only a post with status waiting can be cancelled; a published post is not removed from the network.",
+    inputSchema: {
+      type: "object" as const,
+      properties: { broadcastGuid: { type: "string", description: "The broadcast guid to cancel." } },
+      required: ["broadcastGuid"],
+    },
+  },
 ];
 
 // Every tool accepts an optional `client` slug for multi-tenant routing.
@@ -1190,11 +1250,69 @@ async function createEngagement(args: {
   return hubspotRequest("/engagements/v1/engagements", "POST", payload);
 }
 
+// --- Social (v1 broadcasts) ---
+async function socialListChannels(): Promise<unknown> {
+  return hubspotRequest("/broadcast/v1/channels/setting/publish/current");
+}
+
+async function socialListPosts(args: { status?: string; since?: number; count?: number }): Promise<unknown> {
+  const q = new URLSearchParams();
+  if (args?.status) q.set("status", args.status);
+  if (args?.since) q.set("since", String(args.since));
+  q.set("count", String(args?.count ?? 20));
+  return hubspotRequest(`/broadcast/v1/broadcasts?${q.toString()}`);
+}
+
+async function socialGetPost(guid: string): Promise<unknown> {
+  return hubspotRequest(`/broadcast/v1/broadcasts/${encodeURIComponent(guid)}`);
+}
+
+function parseTriggerAt(v: string): number {
+  const ms = /^\d+$/.test(v.trim()) ? Number(v.trim()) : Date.parse(v);
+  if (!Number.isFinite(ms)) throw new Error(`triggerAt is not a valid time: ${v}`);
+  return ms;
+}
+
+async function socialSchedulePost(args: {
+  channelGuid: string;
+  body: string;
+  triggerAt: string;
+  photoUrl?: string;
+  linkUrl?: string;
+}): Promise<unknown> {
+  if (!args.body || !args.body.trim()) throw new Error("body is empty");
+  const triggerAt = parseTriggerAt(String(args.triggerAt));
+  // Hard guard: the v1 API publishes immediately when triggerAt is missing or past.
+  if (triggerAt < Date.now() + 2 * 60 * 1000) {
+    throw new Error(
+      `triggerAt ${new Date(triggerAt).toISOString()} is less than 2 minutes from now; refusing (this tool only schedules)`
+    );
+  }
+  // Fail loudly on a channel that is not connected rather than letting HubSpot guess.
+  const channels = (await socialListChannels()) as Array<{ channelGuid: string; name?: string }>;
+  const ch = channels.find((c) => c.channelGuid === args.channelGuid);
+  if (!ch) throw new Error(`channelGuid ${args.channelGuid} is not a connected publishing channel`);
+
+  const content: Record<string, string> = { body: args.body };
+  if (args.photoUrl) content.photoUrl = args.photoUrl;
+  if (args.linkUrl) content.linkUrl = args.linkUrl;
+  const created = (await hubspotRequest("/broadcast/v1/broadcasts", "POST", {
+    channelGuid: args.channelGuid,
+    triggerAt,
+    content,
+  })) as Record<string, unknown>;
+  return { channel: ch.name, requestedTriggerAt: new Date(triggerAt).toISOString(), broadcast: created };
+}
+
+async function socialCancelPost(guid: string): Promise<unknown> {
+  return hubspotRequest(`/broadcast/v1/broadcasts/${encodeURIComponent(guid)}`, "DELETE");
+}
+
 // Create and configure the MCP server
 const server = new Server(
   {
     name: "hubspot-extended",
-    version: "0.5.0",
+    version: "0.6.0",
   },
   {
     capabilities: {
@@ -1369,6 +1487,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "hubspot_create_engagement":
         result = await createEngagement(args as Parameters<typeof createEngagement>[0]);
+        break;
+
+      case "hubspot_social_list_channels":
+        result = await socialListChannels();
+        break;
+
+      case "hubspot_social_list_posts":
+        result = await socialListPosts((args || {}) as Parameters<typeof socialListPosts>[0]);
+        break;
+
+      case "hubspot_social_get_post":
+        result = await socialGetPost((args as { broadcastGuid: string }).broadcastGuid);
+        break;
+
+      case "hubspot_social_schedule_post":
+        result = await socialSchedulePost(args as Parameters<typeof socialSchedulePost>[0]);
+        break;
+
+      case "hubspot_social_cancel_post":
+        result = await socialCancelPost((args as { broadcastGuid: string }).broadcastGuid);
         break;
 
       default:
