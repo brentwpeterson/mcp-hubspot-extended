@@ -180,6 +180,10 @@ const tools: Tool[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
+        extra: {
+          type: "object",
+          description: "Other v3 email fields, merged into the request as given, e.g. { subcategory: \"automated\" } for a workflow email or { subscriptionDetails: { subscriptionId } }.",
+        },
         name: {
           type: "string",
           description: "Internal name for the email (not shown to recipients)",
@@ -218,6 +222,10 @@ const tools: Tool[] = [
     inputSchema: {
       type: "object" as const,
       properties: {
+        extra: {
+          type: "object",
+          description: "Other v3 email fields, merged into the request as given, e.g. { subcategory: \"automated\" } for a workflow email or { subscriptionDetails: { subscriptionId } }.",
+        },
         emailId: {
           type: "string",
           description: "The ID of the marketing email to update",
@@ -894,6 +902,7 @@ async function createMarketingEmail(args: {
   replyTo?: string;
   htmlContent?: string;
   templatePath?: string;
+  extra?: Record<string, unknown>;
 }): Promise<unknown> {
   const payload: Record<string, unknown> = {
     name: args.name,
@@ -926,6 +935,10 @@ async function createMarketingEmail(args: {
     };
   }
 
+  // extra: other v3 email fields as given (e.g. subcategory "automated" for a
+  // workflow email, subscriptionDetails). Merged last, so it wins.
+  if (args.extra) Object.assign(payload, args.extra);
+
   return hubspotRequest("/marketing/v3/emails", "POST", payload);
 }
 
@@ -937,6 +950,7 @@ async function updateMarketingEmail(args: {
   senderEmail?: string;
   replyTo?: string;
   htmlContent?: string;
+  extra?: Record<string, unknown>;
 }): Promise<unknown> {
   const payload: Record<string, unknown> = {};
 
@@ -959,6 +973,8 @@ async function updateMarketingEmail(args: {
       },
     };
   }
+
+  if (args.extra) Object.assign(payload, args.extra);
 
   return hubspotRequest(`/marketing/v3/emails/${args.emailId}`, "PATCH", payload);
 }
@@ -1420,7 +1436,7 @@ async function updateFlow(flowId: string, flow: unknown): Promise<unknown> {
 const server = new Server(
   {
     name: "hubspot-extended",
-    version: "0.7.0",
+    version: "0.7.1",
   },
   {
     capabilities: {
