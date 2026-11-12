@@ -782,6 +782,67 @@ const tools: Tool[] = [
       required: ["broadcastGuid"],
     },
   },
+  {
+    name: "hubspot_upload_design_file",
+    description:
+      "Upload a local file to the Design Manager (PUT /cms/v3/source-code/{environment}/content/{path}, multipart). Use for coded email and page templates, e.g. path custom/email/my-template.html. The published environment validates email templates (company name, address and unsubscribe tokens). Overwrites a file at the same path.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        localPath: { type: "string", description: "Absolute path of the local file to upload." },
+        path: { type: "string", description: "Design Manager path, e.g. custom/email/my-template.html." },
+        environment: { type: "string", enum: ["published", "draft"], description: "published (default) or draft.", default: "published" },
+      },
+      required: ["localPath", "path"],
+    },
+  },
+  {
+    name: "hubspot_search_files",
+    description:
+      "Search the File Manager (GET /files/v3/files/search). Returns name, extension, access, url and timestamps. Use to find an uploaded PDF or image and its public URL.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Filter by file name (contains)." },
+        extension: { type: "string", description: "Filter by extension, e.g. pdf." },
+        sort: { type: "string", description: "Sort field, default -updatedAt (newest first).", default: "-updatedAt" },
+        limit: { type: "number", description: "Max results (default 20).", default: 20 },
+      },
+    },
+  },
+  {
+    name: "hubspot_get_flow",
+    description:
+      "Get a workflow in the v4 flow shape (GET /automation/v4/flows/{flowId}), including its enrollment criteria (triggers) and actions, which the v3 workflow view leaves out. The flowId is migrationStatus.flowId in the v3 workflow.",
+    inputSchema: {
+      type: "object" as const,
+      properties: { flowId: { type: "string", description: "v4 flow id." } },
+      required: ["flowId"],
+    },
+  },
+  {
+    name: "hubspot_create_flow",
+    description:
+      "Create a workflow (POST /automation/v4/flows). Pass the full v4 flow body (type, objectTypeId, flowType, name, isEnabled, startActionId, nextAvailableActionId, actions, enrollmentCriteria). Read an existing flow with hubspot_get_flow first and copy its shape. Create with isEnabled false and enable after a test.",
+    inputSchema: {
+      type: "object" as const,
+      properties: { flow: { type: "object", description: "The v4 flow body." } },
+      required: ["flow"],
+    },
+  },
+  {
+    name: "hubspot_update_flow",
+    description:
+      "Update a workflow (PUT /automation/v4/flows/{flowId}). The body must carry the current revisionId and type from hubspot_get_flow. Use to enable or disable (isEnabled) or to change actions and triggers.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        flowId: { type: "string", description: "v4 flow id." },
+        flow: { type: "object", description: "The full v4 flow body, with revisionId." },
+      },
+      required: ["flowId", "flow"],
+    },
+  },
 ];
 
 // Every tool accepts an optional `client` slug for multi-tenant routing.
@@ -1308,11 +1369,58 @@ async function socialCancelPost(guid: string): Promise<unknown> {
   return hubspotRequest(`/broadcast/v1/broadcasts/${encodeURIComponent(guid)}`, "DELETE");
 }
 
+// --- Design Manager, File Manager, v4 flows ---------------------------------
+
+async function uploadDesignFile(args: { localPath: string; path: string; environment?: string }): Promise<unknown> {
+  const env = args.environment === "draft" ? "draft" : "published";
+  const clean = args.path.replace(/^\/+/, "");
+  if (!clean) throw new Error("path is required, e.g. custom/email/my-template.html");
+  let data: Buffer;
+  try {
+    data = readFileSync(args.localPath);
+  } catch (e) {
+    throw new Error(`cannot read localPath ${args.localPath}: ${e instanceof Error ? e.message : e}`);
+  }
+  const form = new FormData();
+  const fileName = clean.split("/").pop() || "file";
+  form.append("file", new Blob([new Uint8Array(data)]), fileName);
+  const url = `${HUBSPOT_API_BASE}/cms/v3/source-code/${env}/content/${clean.split("/").map(encodeURIComponent).join("/")}`;
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${currentToken()}` },
+    body: form,
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`HubSpot API error (${response.status}): ${text}`);
+  return text ? JSON.parse(text) : { success: true };
+}
+
+async function searchFiles(args: { name?: string; extension?: string; sort?: string; limit?: number }): Promise<unknown> {
+  const q = new URLSearchParams();
+  if (args.name) q.set("name", args.name);
+  if (args.extension) q.set("extension", args.extension);
+  q.set("sort", args.sort || "-updatedAt");
+  q.set("limit", String(args.limit || 20));
+  return hubspotRequest(`/files/v3/files/search?${q.toString()}`);
+}
+
+async function getFlow(flowId: string): Promise<unknown> {
+  return hubspotRequest(`/automation/v4/flows/${encodeURIComponent(flowId)}`);
+}
+
+async function createFlow(flow: unknown): Promise<unknown> {
+  return hubspotRequest(`/automation/v4/flows`, "POST", flow);
+}
+
+async function updateFlow(flowId: string, flow: unknown): Promise<unknown> {
+  return hubspotRequest(`/automation/v4/flows/${encodeURIComponent(flowId)}`, "PUT", flow);
+}
+
 // Create and configure the MCP server
 const server = new Server(
   {
     name: "hubspot-extended",
-    version: "0.6.0",
+    version: "0.7.0",
   },
   {
     capabilities: {
@@ -1507,6 +1615,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "hubspot_social_cancel_post":
         result = await socialCancelPost((args as { broadcastGuid: string }).broadcastGuid);
+        break;
+
+      case "hubspot_upload_design_file":
+        result = await uploadDesignFile(args as Parameters<typeof uploadDesignFile>[0]);
+        break;
+
+      case "hubspot_search_files":
+        result = await searchFiles((args || {}) as Parameters<typeof searchFiles>[0]);
+        break;
+
+      case "hubspot_get_flow":
+        result = await getFlow((args as { flowId: string }).flowId);
+        break;
+
+      case "hubspot_create_flow":
+        result = await createFlow((args as { flow: unknown }).flow);
+        break;
+
+      case "hubspot_update_flow":
+        result = await updateFlow((args as { flowId: string }).flowId, (args as { flow: unknown }).flow);
         break;
 
       default:

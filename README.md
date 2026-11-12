@@ -11,6 +11,8 @@ This server is being grown into a **standalone, multi-tenant** HubSpot MCP that 
 - Email statistics and performance data
 - Sales sequences (list, view, enroll contacts)
 - Workflow enrollment (enroll/unenroll contacts)
+- Design Manager upload (`hubspot_upload_design_file`, coded email and page templates) and File Manager search (`hubspot_search_files`), new in v0.7.0; scope `content` and `files`
+- Workflows in the v4 flow shape: get, create, update (`hubspot_get_flow`, `hubspot_create_flow`, `hubspot_update_flow`), new in v0.7.0; scope `automation`
 
 Once core-CRM parity is fully exercised and multi-tenant client routing lands, the official `@hubspot/mcp-server` entry can be retired (see backlog `6a3ec7413fd534dd5e72ba75`).
 
